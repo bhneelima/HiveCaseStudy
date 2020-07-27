@@ -1,0 +1,771 @@
+--*************************************************************************************************************************************************************************
+--                                                          Data Ingestion and Processing - Case Study
+--                                                                                        - Neelima Bhavanasi and Josyula Pratyusha
+--*************************************************************************************************************************************************************************
+
+
+-- Creating workspace to run assignment
+Create Database If not exists grp_stdy_hive_nyc;
+
+
+Use grp_stdy_hive_nyc;
+
+
+ADD JAR /opt/cloudera/parcels/CDH/lib/hive/lib/hive-hcatalog-core-1.1.0-cdh5.11.2.jar;
+
+
+SET hive.exec.max.dynamic.partitions=100000;
+SET hive.exec.max.dynamic.partitions.pernode=100000;
+
+
+-- Dropping the table if exists
+Drop table Nyc_Taxi_TLC;
+
+
+--Loading data, creating table Nyc_Taxi_TLC to hold data
+Create External Table If Not Exists Nyc_Taxi_TLC
+(VendorId int, 
+tpep_pickup_datetime timestamp, 
+tpep_dropoff_datetime timestamp,
+passenger_count int, 
+trip_distance double,
+ratecodeid int, 
+store_and_fwd_flag string, 
+pulocationid int, 
+dolocationid int,
+payment_type int, 
+fare_amount double, 
+extra double, 
+mta_tax double, 
+tip_amount double, 
+tolls_amount double,
+improvement_surcharge double, 
+total_amount double)
+Row Format Delimited Fields Terminated BY ',' Stored As Textfile
+Location '/common_folder/nyc_taxi_data' Tblproperties ("skip.header.line.count"="1"); 
+
+
+-- Visualizing the data once
+Select * From Nyc_Taxi_TLC Limit 10;
+
+
+--Total no of records
+Select Count(*) as Total_Records From Nyc_Taxi_TLC ;
+
+-- Inference: There are total of 1174569 records.
+
+--*****************************************************************************************************************************************
+--                                                            BASIC QUALITY CHECKS
+--*****************************************************************************************************************************************
+
+-- 1.How many records has each TPEP provider provided? Write a query that summarises the number of records of each provider
+
+Select VendorId, Count(*) as Count_of_records
+From Nyc_Taxi_TLC
+Group By VendorId
+Order By Count_of_records desc;
+
+/* OUTPUT:
+ 	vendor_id	Count_of_records
+1	2	647183
+2	1	527386
+Inferences: Vendor 1  - 647183 records 
+            Vendor 2  - 527386 records */
+
+
+
+--************************************************************************************************************************************************
+--                                                           Question: 2
+--************************************************************************************************************************************************
+
+-- The data provided is for months November and December only. Check whether the data is consistent, and if not, identify the data quality issues. 
+-- Mention all data quality issues in comments.
+
+
+-- Query for identifying various issues in the pick-up time and drop-off time columns
+Select count(*) as Records_notin_Nov_Dec
+From Nyc_Taxi_TLC
+Where month (tpep_pickup_datetime) not in (11,12) or 
+month(tpep_dropoff_datetime) not in (11,12) or
+year(tpep_dropoff_datetime) != 2017
+or year(tpep_dropoff_datetime) != 2017
+or tpep_pickup_datetime > tpep_dropoff_datetime;
+
+/* OUTPUT:
+ 	records_notin_nov_dec
+1	194
+
+Inferences: 194 records are there which are not in November and December months */
+
+
+-- Now let us see what are the records which are not in timeframe and from which vendors 
+Select VendorId,Year(tpep_pickup_datetime) AS `Year`,Month(tpep_pickup_datetime) AS `Month`, Count(*) AS Total_records
+From Nyc_Taxi_TLC 
+Group By VendorId, Year(tpep_pickup_datetime), Month(tpep_pickup_datetime)
+Order By VendorId, `Year` desc, `Month` desc;
+
+/*vendorid	year	month	total_records
+ 	vendorid	year	month	total_records
+1	1	2017	12	266104
+2	1	2017	11	261282
+3	2	2018	1	4
+4	2	2017	12	328151
+5	2	2017	11	319018
+6	2	2017	10	6
+7	2	2009	1	1
+8	2	2008	12	2
+9	2	2003	1	1 
+
+*/vendorid	year	month	total_records
+ 	vendorid	year	month	total_records
+1	1	2017	12	266104
+2	1	2017	11	261282
+3	2	2018	1	4
+4	2	2017	12	328151
+5	2	2017	11	319018
+6	2	2017	10	6
+7	2	2009	1	1
+8	2	2008	12	2
+9	2	2003	1	1
+
+--Inference: 14 records are not from November and December. */
+
+
+-- Now let us see what are the records which are not in timeframe and from which vendors 
+Select VendorId,Month(tpep_dropoff_datetime) AS `Month`, Count(*) AS Total_records
+From Nyc_Taxi_TLC 
+Group By VendorId,  Month(tpep_dropoff_datetime)
+Order By VendorId,  `Month` desc;
+
+/*
+vendorid	year	month	total_records
+ 	vendorid	year	month	total_records
+1	1	2019	4	1
+2	1	2018	1	28
+3	1	2017	12	266155
+4	1	2017	11	261202
+5	2	2018	1	82
+6	2	2017	12	328244
+7	2	2017	11	318851
+8	2	2017	10	2
+9	2	2009	1	2
+10	2	2008	12	1
+11	2	2003	1	1 
+
+--Inference: 117 records are not from November and December. */
+
+
+--********************************************************************************************************************************************************
+--                                                                   3.Question
+--********************************************************************************************************************************************************
+-- You might have encountered unusual or erroneous rows in the dataset.
+-- Can you conclude which vendor is doing a bad job in providing the records using different columns of the dataset? 
+-- Summarise your conclusions based on every column where these errors are present. For example,  There are unusual passenger count, i.e. 0 which is unusual.
+-- HINT: Use the Data Dictionary provided to validate the data present in the records provided.
+
+
+-- 3.a Identifying issues with passenger count column
+Select passenger_count, Count(*) as Total_Passenger_Records
+From Nyc_Taxi_TLC
+Group By passenger_count
+Order By passenger_count;
+
+/*passenger_count	total_passenger_records
+ 	passenger_count	total_passenger_records
+1	0	6824
+2	1	827499
+3	2	176872
+4	3	50693
+5	4	24951
+6	5	54568
+7	6	33146
+8	7	12
+9	8	3
+10	9	1 
+
+-- Inference: There are 6824 records where passengers count is 0 which does not make sense and can be treated as errors and can be cleaned. */
+
+
+-- 3.b Identifying issues with trip distance. Checking the maximum distance and minimum distance in the trip distance column
+Select max(trip_distance) as Max_distance, min(trip_distance) as Min_distance from Nyc_Taxi_TLC;
+
+/*max_distance	min_distance
+ 	max_distance	min_distance
+1	126.41	0
+
+-- Inference: The maximum distance is 126.4 miles where as minimum distance is zero */
+
+-- Records where trip_distance is zero
+Select Count(*) as trip_distance_zero
+from Nyc_Taxi_TLC Where trip_distance = 0;
+
+/*trip_distance_zero
+ 	trip_distance_zero
+1	7402
+-- Inference: These records can be considered as Cancelled trips so they are valid */
+
+
+-- 3.c Checking pickup location and drop off locations, checking for any null values in pickup location and dropoff locaitons
+Select * From  Nyc_Taxi_TLC Where pulocationid is null;
+--  Inference : 0 results
+
+Select * From  Nyc_Taxi_TLC Where dolocationid is null;
+-- Inference :0 results
+-- Inferences: No data quality issues in pickup and drop off locations
+
+
+-- 3.d Analysing Rate Code column, identifying any other values in Ratecode_id column which is not 1-6
+Select ratecodeid, Count(*) as Total_Ratecode_Records
+From Nyc_Taxi_TLC
+Group By ratecodeid
+Order By ratecodeid desc;
+
+/*ratecodeid	total_ratecode_records
+ 	ratecodeid	total_ratecode_records
+1	99	9
+2	6	3
+3	5	3793
+4	4	586
+5	3	2562
+6	2	25338
+7	1	1142278
+
+-- Inference: There are 9 records with ratecode id 99 and these records need not to be considered. */
+
+
+-- 3.e Analysing storefwd_records
+Select store_and_fwd_flag, Count(*) as Total_Storefwd_Records
+From Nyc_Taxi_TLC
+Group By store_and_fwd_flag
+Order By Total_Storefwd_Records desc;
+
+/*store_and_fwd_flag	total_storefwd_records
+ 	store_and_fwd_flag	total_storefwd_records
+1	N	1170618
+2	Y	3951
+
+-- Inferences: No data quality issues found in storefwd_flag column*/
+
+
+-- 3.f Analysing the column payment_type for any data issues
+Select payment_type, Count(*) as Total_Payment_Records
+From Nyc_Taxi_TLC
+Group By payment_type
+Order By Total_Payment_Records desc;
+
+/*payment_type	total_payment_records
+ 	payment_type	total_payment_records
+1	1	790256
+2	2	376374
+3	3	6274
+4	4	1665
+
+-- Inference: No issues found */
+
+
+--3.g Analysing the fare_amount column for any data issues
+Select max(fare_amount) as max_fare, min(fare_amount) as min_fare From Nyc_Taxi_TLC;
+
+/*max_fare	min_fare
+ 	max_fare	min_fare
+1	650	-200
+
+--Inference: The maximum fare_amount is 650 while minimum is -200 */
+
+-- Identifying trips having negative values in fare_amount
+Select Count(*) as Total_Negfare_Records From Nyc_Taxi_TLC Where fare_amount < 0;
+
+/*total_negfare_records
+ 	total_negfare_records
+1	558
+
+-- Inferences:There are about 558 trips that have negative values in fare_amount column and they need to be cleaned.*/
+
+
+
+-- 3.h Analysing the extra changes column for any data issues
+Select Count(*) as Total_records From Nyc_Taxi_TLC Where extra not in (0, 0.5, 1);
+
+/*total_records
+ 	total_records
+1	4856
+
+-- Inferences: There are about 4856 trips where the extra charges are other than 0 or 0.5 or 1 which need to be cleaned */
+
+
+-- 3.i Analysing for data quality issues in mta_tax column
+Select mta_tax, Count(*) as Total_Mta_records 
+From Nyc_Taxi_TLC 
+Where mta_tax  not in (0,0.5)
+Group By mta_tax
+Order By mta_tax desc;
+
+/*11.4	1
+2	3	3
+3	-0.5	544
+
+-- Inference: All these records need to be filtered as the mta_tax can be either 0 or 0.5 as per data dictionary */
+
+
+-- 3.j Analysing data quality issues in tip_amount column
+Select tip_amount,Count(*) as Total_tipamount_records
+From Nyc_Taxi_TLC
+Where tip_amount <0
+Group By tip_amount;
+
+/*tip_amount	total_tipamount_records
+ 	tip_amount	total_tipamount_records
+1	-1.16	1
+2	-0.86	1
+3	-0.82	1
+4	-0.66	1
+
+--Inference: These four records need to be filtered as the tip amount can not be negative. */
+
+-- 3.k Analysing data quality issues in tolls_amount column
+Select tolls_amount,Count(*) as erroneous_toll_records
+From Nyc_Taxi_TLC
+where tolls_amount <0
+Group By tolls_amount;
+
+/*tolls_amount	total_toll_records
+ 	tolls_amount	total_toll_records
+1	-5.76	3
+
+-- Inference: These 3 records need to be filtered as tolls_amount cannot be negative. */
+
+-- 3.l Analysing data quality issues in improvement surcharge column
+Select improvement_surcharge, Count(*) as Total_scharge_records
+From Nyc_Taxi_TLC
+Where improvement_surcharge not in (0,0.3)
+Group By improvement_surcharge
+Order By improvement_surcharge desc;
+
+/*improvement_surcharge	total_scharge_records
+ 	improvement_surcharge	total_scharge_records
+1	1	4
+2	-0.3	558
+
+-- Inference: All these records need to be filtered as sirchange amount should be either 0 or 0.3 */
+
+
+--Filtering all these records from the table using single query
+Select VendorId,Count(*) AS Total_Records
+From Nyc_Taxi_TLC
+Where Month(tpep_pickup_datetime) Not In (11,12)
+Or Year(tpep_pickup_datetime) != 2017 
+Or tpep_pickup_datetime > tpep_dropoff_datetime 
+Or Month(tpep_dropoff_datetime) Not In (11,12) 
+Or Year(tpep_dropoff_datetime) != 2017 
+Or passenger_count = 0  
+Or ratecodeid Not between 1 and 6 
+Or payment_type NOT between 1 and 6 
+Or fare_amount < 0 
+Or Extra Not In (0.5, 0, 1) 
+Or mta_tax not in (0, 0.5) 
+Or tip_amount <0 
+Or tolls_amount <0 
+Or improvement_surcharge not in (0, 0.3) 
+Or total_amount <0
+Group By VendorId
+Order By Total_Records desc;
+
+/*vendorid	total_records
+ 	vendorid	total_records
+1	1	8712
+2	2	3414
+
+--Inference: Total 12126 records are there and vendorid 1 has more faulty records of 8712 records and vendorid 2 has faulty records of 3414 */
+
+
+Order By Total_Records desc;
+
+--Inference: Total 12126 records are there and vendorid 1 has more faulty records of 8712 records and vendorid 2 has faulty records of 3414
+
+-- ******************************************************************************************************************************
+-- Creating table with Month and Passenger count as partitions, as most of the analysis is focused on month and passenger count.
+--*******************************************************************************************************************************
+
+-- Dropping Table if it already exists
+Drop Table Nyc_Taxi_TLC_Part_orc;
+
+-- Running necessary commnands for partitions
+SET hive.exec.max.dynamic.partitions=100000;
+SET hive.exec.max.dynamic.partitions.pernode=100000;
+
+-- Creating new table with partitions on month and passenger count
+Create External Table If Not Exists Nyc_Taxi_TLC_Part_orc
+(VendorId int, 
+tpep_pickup_datetime timestamp, 
+tpep_dropoff_datetime timestamp,
+trip_distance double,
+ratecodeid int, 
+store_and_fwd_flag string, 
+pulocationid int, 
+dolocationid int,
+payment_type int, 
+fare_amount double, 
+extra double, 
+mta_tax double, 
+tip_amount double, 
+tolls_amount double,
+improvement_surcharge double, 
+total_amount double)
+Partitioned By (month int, passenger_count int)
+Stored as orc
+Location '/user/hive/warehouse/bhneelima/Nyc_Taxi_TLC_Part_orc/'
+Tblproperties ("orc.compress"="SNAPPY");
+
+
+-- Inserting the data into partition table while also filtering erroneous records
+Insert Overwrite Table Nyc_Taxi_TLC_Part_orc Partition(month, passenger_count)
+Select VendorId, tpep_pickup_datetime, tpep_dropoff_datetime, trip_distance, ratecodeid, store_and_fwd_flag,
+pulocationid, dolocationid, payment_type, fare_amount, extra, mta_tax, tip_amount, tolls_amount, improvement_surcharge,
+total_amount, month(tpep_pickup_datetime) as month, passenger_count
+From Nyc_Taxi_TLC
+Where Month(tpep_pickup_datetime) In (11,12)
+And Year(tpep_pickup_datetime) = 2017 
+And tpep_pickup_datetime <= tpep_dropoff_datetime 
+And Month(tpep_dropoff_datetime) In (11,12) 
+And Year(tpep_dropoff_datetime) = 2017 
+And Nyc_Taxi_TLC.passenger_count != 0  
+And ratecodeid  between 1 and 6 
+And payment_type  between 1 and 6 
+And fare_amount >= 0 
+And Extra In (0.5, 0, 1) 
+And mta_tax  In (0, 0.5) 
+And tip_amount >= 0 
+And tolls_amount >= 0 
+And improvement_surcharge In (0, 0.3) 
+And total_amount >= 0 ;
+
+
+-- Checking total count of the records for the partition table created
+Select Count(*) as Total_records From Nyc_Taxi_TLC_Part_orc;
+
+/*total_records
+ 	total_records
+1	1162443
+
+--Inference: Total of 1162443 records are there after filtering out. (1174569-1162443)=12,126 records which we got when we queried above for all error records. */
+
+
+
+--*********************************************************************************************************************************
+--                                                       Analysis-I
+--*********************************************************************************************************************************
+
+
+
+
+
+--******** 1.Question *********
+
+-- 1.Compare the overall average fare per trip for November and December.
+
+Select month, round(avg(fare_amount),2) as average_fare
+From Nyc_Taxi_TLC_Part_orc
+Group By `month`
+Order By average_fare desc;
+
+/*month	average_fare
+ 	month	average_fare
+1	11	12.96
+2	12	12.76
+
+--Inference: The average fare for month November is greater than average fare for month December. */
+
+
+
+
+--******** 2.Question *********
+-- Explore the ‘number of passengers per trip’. how many trips are made by each level of ‘Passenger_count’? 
+-- Do most people travel solo or with other people?
+
+Select passenger_count, Count(*) as No_passenger_trip
+From Nyc_Taxi_TLC_Part_orc
+Group By passenger_count
+Order By No_passenger_trip desc;
+
+/*passenger_count	no_passenger_trip
+ 	passenger_count	no_passenger_trip
+1	1	824084
+2	2	175838
+3	5	54268
+4	3	50421
+5	6	32992
+6	4	24824
+7	7	12
+8	8	3
+9	9	1
+
+--Inference: There are more number of trips with single passenger.(824084) To generalise as the passenger count increases the number of trips decreases. */
+
+Select 
+Sum(CASE when passenger_count = 1 Then 1 Else 0 End) as `Solo Passenger Trips`, 
+Sum(CASE when passenger_count != 1 Then 1 Else 0 End) as `Group Passenger Trips`, 
+Round(100*Sum(CASE when passenger_count = 1 Then 1 Else 0 End)/Count(*),2) as `% Share of Solo Trips`
+From Nyc_Taxi_TLC_Part_orc;
+
+/*solo passenger trips	group passenger trips	% share of solo trips
+ 	solo passenger trips	group passenger trips	% share of solo trips
+1	824084	338359	70.89
+
+-- Inference: 71% of trips are solo trips.
+
+
+
+
+--******** 3.Question *********
+
+--Which is the most preferred mode of payment?
+
+Select payment_type, Count(*) as Total_Records
+From Nyc_Taxi_TLC_Part_orc
+Group By payment_type
+Order By Total_Records desc;
+
+/*payment_type	total_records
+ 	payment_type	total_records
+1	1	782514
+2	2	372721
+3	3	5728
+4	4	1480
+
+--Inference: Most prefered payment is payment_type 1 i.e Credit Card.It is followed by Cash, No charge and Dispute respectively */
+
+--Calculating in percentages for all payment modes
+Select
+round(100*sum(Case When payment_type = 1 Then 1 Else 0 End)/Count(*),2) as `% Trips paid using credit card`, 
+round(100*sum(Case When payment_type = 2 Then 1 Else 0 End)/Count(*),2) as `% Trips paid using cash`,
+round(100*sum(Case When payment_type = 3 Then 1 Else 0 End)/Count(*),2) as `% Trips with No Charge`,
+round(100*sum(Case When payment_type = 4 Then 1 Else 0 End)/Count(*),2) as `% Trips with Disputed payment`
+From Nyc_Taxi_TLC_Part_orc;
+
+/*% trips paid using credit card	% trips paid using cash	% trips with no charge	% trips with disputed payment
+ 	% trips paid using credit card	% trips paid using cash	% trips with no charge	% trips with disputed payment
+1	67.32	32.06	0.49	0.13
+
+--Inference: Almost 67.32% of trips are paid by creditcard. */
+
+
+
+
+--******** 4.Question *********
+
+-- What is the average tip paid per trip? Compare the average tip with the 25th, 50th and 75th percentiles and comment 
+-- whether the ‘average tip’ is a representative statistic (of the central tendency) of ‘tip amount paid’. 
+-- Hint: You may use percentile_approx(DOUBLE col, p): Returns an approximate pth percentile of a numeric column (including floating point types) in the group.
+
+Select round(avg(tip_amount),2) as `Average Tip`, round(percentile_approx(tip_amount,0.25),2) as `25th % Tip`,
+round(percentile_approx(tip_amount, 0.50),2) as `50th % Tip`, round(percentile_approx(tip_amount, 0.75),2) as `75th % Tip`,
+Count(Distinct tip_amount) as `Different Tip Amounts`
+From Nyc_Taxi_TLC_Part_orc;
+
+/*average tip	25th % tip	50th % tip	75th % tip	different tip amounts
+ 	average tip	25th % tip	50th % tip	75th % tip	different tip amounts
+1	1.83	0	1.36	2.45	2119
+
+--Inference: 
+-- average tip	1.83
+-- 25th percentile tip	0
+-- 50th percentile tip	1.35
+-- 75th percentile tip	2.45
+-- Different tip amounts  2119 */
+
+
+
+
+
+--******** 5.Question *********
+
+--Explore the ‘Extra’ (charge) variable - what fraction of total trips have an extra charge is levied?
+
+Select Sum(Case When extra != 0 Then 1 Else 0 End) as `No. of trips with extra charge`,
+round(100*Sum(Case When extra != 0 Then 1 Else 0 End)/Count(*),2) as `% of trips with extra charge`
+from Nyc_Taxi_TLC_Part_orc;
+
+/*no. of trips with extra charge	% of trips with extra charge
+ 	no. of trips with extra charge	% of trips with extra charge
+1	534892	46.01
+
+--Inference: Out of the total trips, 46.01% of the trips are being levied with extra charges */
+
+
+
+
+
+
+--*********************************************************************************************************************************
+--                                                       Analysis-II
+--*********************************************************************************************************************************
+
+--******** 1.Question *********
+
+-- What is the correlation between the number of passengers on any given trip, and the tip paid per trip? 
+-- Do multiple travellers tip more compared to solo travellers? Hint: Use CORR(Col_1, Col_2)
+
+Select round(corr(passenger_count, tip_amount),4) as `Corr - Passenger Count vs Tip`, 
+round(avg(CASE when passenger_count=1 then tip_amount else null end), 2) as `Solo Passenger - Avg Tip`, 
+round(avg(CASE when passenger_count != 1 then tip_amount else null end), 2) as `Multiple Passenger - Avg Tip`
+From Nyc_Taxi_TLC_Part_orc;
+
+/*corr - passenger count vs tip	solo passenger - avg tip	multiple passenger - avg tip
+ 	corr - passenger count vs tip	solo passenger - avg tip	multiple passenger - avg tip
+1	-0.005	1.84	1.81
+--Inference:
+-- corr - passenger count vs tip -0.005
+-- solo passenger - avg tip	1.84
+-- group passenger - avg tip 1.81
+--  The value of Pearson coefficient is very less (-0.005), thus very less correlation exist
+--  The value of Pearson coefficient is negative and thus, multiple travellers do not tip more compared to solo travellers as per the data provided. */
+
+
+
+
+
+
+--******** 2.Question *********
+
+-- Segregate the data into five segments of ‘tip paid’: [0-5), [5-10), [10-15) , [15-20) and >=20. 
+-- Calculate the percentage share of each bucket (i.e. the fraction of trips falling in each bucket).
+
+Select `Tip Bucket`, Count(*) as `Record Count`, max(`Rec Count`) as `Total Rec Count`, 
+round(100*Count(*)/max(`Rec Count`),2) as `Tip Bucket % of total`
+From (Select *, Count(*) over () AS `Rec Count`,
+	Case When tip_amount >= 0 and tip_amount <5 then '[0-5)' 
+	     When tip_amount >=5 and tip_amount < 10 then '[5-10)'
+	     When tip_amount >=10 and tip_amount < 15 then '[10-15)'
+	     When tip_amount >=15 and tip_amount < 20 then '[15-20)'
+	     Else '>=20' 
+	End As `Tip Bucket` 
+    From Nyc_Taxi_TLC_Part_orc) as tbl_a
+Group By `Tip Bucket`
+Order By `Tip Bucket % of total` desc;
+
+/*tip bucket	record count	total rec count	tip bucket % of total
+ 	tip bucket	record count	total rec count	tip bucket % of total
+1	[0-5)	1073245	1162443	92.33
+2	[5-10)	65481	1162443	5.63
+3	[10-15)	20202	1162443	1.74
+4	[15-20)	2315	1162443	0.2
+5	>=20	1200	1162443	0.1
+-- Inference:
+-- 92.33% percent trips with tip between 0-4 
+-- 5.63% percent trips with trip between 5-9
+-- 1.74% percent trips with trip between 10-14
+-- 0.2% percent trips with trip between 15-19
+-- 0.1% percent trips with trip greater than 20 */
+
+-- Let us analyse tip bucket without payment type of cash
+
+Select `Tip Bucket`, Count(*) as `Record Count`, max(`Rec Count`) as `Total Rec Count`, 
+round(100*Count(*)/max(`Rec Count`),2) as `Tip Bucket % of total`
+From (Select *, Count(*) over () AS `Rec Count`,
+	Case When tip_amount >= 0 and tip_amount <5 then '[0-5)' 
+	     When tip_amount >=5 and tip_amount < 10 then '[5-10)'
+	     When tip_amount >=10 and tip_amount < 15 then '[10-15)'
+	     When tip_amount >=15 and tip_amount < 20 then '[15-20)'
+	     Else '>=20' 
+	End As `Tip Bucket` 
+    From Nyc_Taxi_TLC_Part_orc
+    Where payment_type != 2) as tbl_a
+Group By `Tip Bucket`
+Order By `Tip Bucket % of total` desc;
+
+/*tip bucket	record count	total rec count	tip bucket % of total
+ 	tip bucket	record count	total rec count	tip bucket % of total
+1	[0-5)	700524	789722	88.71
+2	[5-10)	65481	789722	8.29
+3	[10-15)	20202	789722	2.56
+4	[15-20)	2315	789722	0.29
+5	>=20	1200	789722	0.15
+
+-- Inference: After removing cash recordes still 0-5 bucket has maximum no of tips */
+
+
+
+
+
+--******** 3.Question *********
+
+-- Which month has a greater average ‘speed’ - November or December? Note that the variable ‘speed’ will have to be derived from other metrics.
+-- Hint: You have columns for distance and time.
+
+
+-- For this calculation we will skip records where tpep_pickup_datetime > = tpep_dropoff_datetime, also where trip_distance = 0
+-- since these records will cause issues in calculation
+Select `Month`, round(avg(`Speed mph`),2) as `Avg Speed mph`
+From (Select month as `Month`,
+round((trip_distance/((unix_timestamp(tpep_dropoff_datetime) - unix_timestamp(tpep_pickup_datetime))/3600)),2) as `Speed mph`
+From Nyc_Taxi_TLC_Part_orc
+Where tpep_pickup_datetime < tpep_dropoff_datetime
+And trip_distance > 0) as tbl_a
+Group by `Month`;
+
+/*month	avg speed mph
+ 	month	avg speed mph
+1	11	10.97
+2	12	11.07
+--Inference: 
+-- November month has average speed of 10.97 mph
+-- December month has average speed of 11.07 mph
+-- December month has 0.10 mph speed more than November month. */
+
+
+
+
+
+
+
+
+--******** 4.Question *********
+
+-- Analyse the average speed of the most happening days of the year, 
+-- i.e. 31st December (New year’s eve) and 25th December (Christmas) and compare it with the overall average.
+
+-- For this calculation we will skip records where tpep_pickup_datetime > = tpep_dropoff_datetime, also where trip_distance = 0
+-- since these records will cause issues in calculation
+
+Select 
+round(avg(Case When Date(tpep_pickup_datetime) = '2017-12-25' 
+Then trip_distance/((unix_timestamp(tpep_dropoff_datetime) - unix_timestamp(tpep_pickup_datetime))/3600)
+Else null end),2) as `Christmas Eve Avg Speed mph`,
+round(avg(Case When date(tpep_pickup_datetime) = '2017-12-31'
+Then trip_distance/((unix_timestamp(tpep_dropoff_datetime) - unix_timestamp(tpep_pickup_datetime))/3600)
+Else null end),2) as `New Year Eve Avg Speed mph`,
+round(avg(Case When month(tpep_pickup_datetime) in ('11','12')
+Then trip_distance/((unix_timestamp(tpep_dropoff_datetime) - unix_timestamp(tpep_pickup_datetime))/3600)
+Else null end),2) as `Overall Avg Speed mph`
+From Nyc_Taxi_TLC_Part_orc
+Where tpep_pickup_datetime < tpep_dropoff_datetime
+And trip_distance > 0;
+
+/*	christmas eve avg speed mph	new year eve avg speed mph	overall avg speed mph
+ 	christmas eve avg speed mph	new year eve avg speed mph	overall avg speed mph
+1	15.27	13.27	11.02
+--Inference:
+-- Avg speed on Christmas 15.27 mph
+-- Avg speed on New year eve 13.25 mph
+-- Average speed in November 10.97 mph (from 3rd question)
+-- Average speed in December 11.07 mph (from 3rd question)
+-- Overall Avg Speed 11.02mph */
+
+
+
+
+
+
+
+
+
+
+ 
+
+
+
+
+
+
+
+
